@@ -1,6 +1,6 @@
-# RSA and EC Key Generators
+# RSA and EC Key Generators with Cryptographic Benchmarking
 
-High-performance multithreaded C++ applications that use OpenSSL to generate RSA and Elliptic Curve (EC) keypairs with real-time performance statistics.
+High-performance multithreaded C++ applications that use OpenSSL to generate RSA and Elliptic Curve (EC) keypairs with real-time performance statistics, plus comprehensive cryptographic performance analysis.
 
 ## Applications
 
@@ -14,6 +14,13 @@ High-performance multithreaded C++ applications that use OpenSSL to generate RSA
 - Extremely fast: 1000-10000+ keys/second
 - Ideal for high-throughput applications
 
+### Cryptographic Benchmark (`crypto_benchmark`)
+- **Performance comparison**: RSA-PSS vs ECDSA algorithms
+- **Complete analysis**: Key generation, signing, and verification
+- **Hardware profiling**: System information and CPU crypto features
+- **Mathematical complexity**: Detailed algorithmic analysis
+- **Security equivalence**: RSA-3072 vs ECDSA-256 (both ~128-bit security)
+
 ## Performance Comparison
 
 | Key Type | Security Level | Generation Time | Throughput |
@@ -23,6 +30,38 @@ High-performance multithreaded C++ applications that use OpenSSL to generate RSA
 | EC P-256 | ~128 bits     | ~0.03ms       | ~4000 keys/s|
 | EC P-384 | ~192 bits     | ~1.3ms        | ~800 keys/s |
 | EC P-521 | ~256 bits     | ~0.3ms        | ~3000 keys/s|
+
+## Cryptographic Performance Analysis
+
+The `crypto_benchmark` provides detailed performance comparison between RSA-PSS and ECDSA:
+
+| Operation | RSA-PSS-3072 | ECDSA-256 | Speed Advantage |
+|-----------|---------------|-----------|-----------------|
+| Key Generation | ~1000ms | ~10ms | **ECDSA 100x faster** |
+| Signing | ~2800μs | ~40μs | **ECDSA 70x faster** |
+| Verification | ~60μs | ~35μs | **ECDSA 1.7x faster** |
+
+### Key Insights
+- **ECDSA dominates** in key generation and signing performance
+- **RSA verification** is much faster than RSA signing (45x difference)
+- **ECDSA operations** have balanced signing/verification performance
+- **Hardware acceleration** (AES-NI, SHA-NI, AVX2) significantly improves performance
+
+## Algorithm Details
+
+### RSA-PSS (Probabilistic Signature Scheme)
+- **Standard**: PKCS#1 v2.1 with SHA-256
+- **Mask Generation Function**: MGF1 with SHA-256
+- **Salt Length**: Equal to digest length (32 bytes)
+- **Security**: Provably secure, modern RSA signature scheme
+- **Key Size**: 3072 bits (equivalent to ~128-bit security)
+
+### ECDSA (Elliptic Curve Digital Signature Algorithm)
+- **Curve**: P-256 (secp256r1 / prime256v1)
+- **Hash Function**: SHA-256
+- **Security Level**: ~128 bits
+- **Key Size**: 256 bits (much smaller than equivalent RSA)
+- **Performance**: Balanced signing/verification operations
 
 ## Features
 
@@ -74,6 +113,21 @@ make install-deps
 make
 ```
 
+### Project Structure
+```
+openssltest/
+├── src/cpp/              # C++ source files
+│   ├── rsa_generator.cpp
+│   ├── ec_generator.cpp  
+│   ├── ecdsa_signer.cpp
+│   ├── crypto_benchmark.cpp
+│   └── verify_ec_keys.cpp
+├── obj/                  # Object files (auto-created)
+├── Makefile             # Build configuration
+├── README.md            # This file
+└── [executables]        # Built applications
+```
+
 ## Usage
 
 ### RSA Generator
@@ -85,6 +139,12 @@ make
 ```bash
 ./ec_generator <curve> <num_threads> <num_loops>
 ```
+
+### Cryptographic Benchmark
+```bash
+./crypto_benchmark
+```
+No parameters required - runs automatic performance comparison between RSA-PSS-3072 and ECDSA-256.
 
 ### Parameters
 
@@ -113,6 +173,11 @@ make
 ./ec_generator P521 2 50    # 100 x P-521 keys, 2 threads
 ```
 
+**Cryptographic Benchmark:**
+```bash
+./crypto_benchmark          # Complete RSA-PSS vs ECDSA performance analysis
+```
+
 **List EC curves:**
 ```bash
 ./ec_generator --curves
@@ -120,18 +185,56 @@ make
 
 **Quick tests:**
 ```bash
-make test        # Test both generators
+make test        # Test all applications including benchmark
 make test-ec     # Test EC generator with all curves
 ```
 
 ## Output
 
-The application displays real-time statistics in a single line format:
+### Key Generators
+The applications display real-time statistics in a single line format:
 ```
 Keys:    156, Throughput:   3.25 keys/s, Avg:  285.42ms, Min:  245.33ms, Max:  342.18ms
 ```
 
 Final statistics are displayed when all threads complete.
+
+### Cryptographic Benchmark
+The benchmark provides comprehensive performance analysis including:
+
+**System Information:**
+```
+OS: Linux 5.15.153.1-microsoft-standard-WSL2
+Architecture: x86_64
+CPU: 13th Gen Intel(R) Core(TM) i9-13900H
+CPU Cores: 20
+Crypto CPU Features: pclmulqdq, sse4_1, sse4_2, aes, avx, rdrand, avx2, rdseed, sha_ni
+OpenSSL Version: OpenSSL 3.0.13 30 Jan 2024
+```
+
+**Performance Results:**
+```
+Key Generation Performance:
+  RSA-3072:  1062 ms
+  EC P-256:  9.849 ms
+  Speed Ratio: 107.828x faster
+
+Signing Performance (100 signatures):
+  RSA-PSS-3072: 279224 μs total (2792 μs/sig)
+  ECDSA-256:    3822 μs total (38 μs/sig)
+  Speed Ratio: 73.057x faster
+
+Verification Performance (100 verifications):
+  RSA-PSS-3072: 5925 μs total (59 μs/verify)
+  ECDSA-256:    2983 μs total (29 μs/verify)
+  Speed Ratio: 1.98626x faster
+```
+
+**Mathematical Complexity Analysis:**
+- Detailed algorithmic complexity for each operation
+- Explanation of RSA asymmetric performance (fast verify, slow sign)
+- ECDSA symmetric performance characteristics
+- Performance ratio analysis with mathematical foundations
 
 ## Performance Notes
 
