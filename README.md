@@ -2,6 +2,8 @@
 
 High-performance multithreaded C++ applications that use OpenSSL to generate RSA and Elliptic Curve (EC) keypairs with real-time performance statistics, plus comprehensive cryptographic performance analysis.
 
+Disclaimer: This whole project is generated using copilot. Dont blame me for any errors in text, sourcecode or in the test resulst.
+
 ## Applications
 
 ### RSA Key Generator (`rsa_generator`)
