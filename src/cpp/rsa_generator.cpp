@@ -92,22 +92,25 @@ public:
         // Generate keys using the reused context
         for (int i = 0; i < num_loops; i++) {
             start_time = std::chrono::steady_clock::now();
-            
-            if (EVP_PKEY_keygen(ctx, &pkey) > 0) {
+            int keygen_result = EVP_PKEY_keygen(ctx, &pkey);
+            if (keygen_result > 0) {
                 end_time = std::chrono::steady_clock::now();
                 auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-                
                 // Ensure we got a valid positive duration
                 if (duration.count() > 0) {
                     updateStats(static_cast<uint64_t>(duration.count()));
                 }
-                
                 // Clean up the key
                 EVP_PKEY_free(pkey);
                 pkey = nullptr;
+            } else {
+                unsigned long err = ERR_get_error();
+                char err_buf[256];
+                ERR_error_string_n(err, err_buf, sizeof(err_buf));
+                std::cerr << "RSA key generation failed in thread. OpenSSL error: " << err_buf << std::endl;
+                break; // Bail out of the thread on failure
             }
         }
-        
         // Clean up the context when thread is done
         EVP_PKEY_CTX_free(ctx);
     }
