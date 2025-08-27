@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <vector>
+#include <string>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
 #include <openssl/ec.h>
@@ -16,6 +17,13 @@
 #include <openssl/opensslv.h>
 #include <sys/utsname.h>
 #include <unistd.h>
+
+struct BenchConfig {
+    int iterations = 100;
+    int rsa_bits = 3072;
+    int ec_curve_nid = NID_X9_62_prime256v1; // P-256
+    std::string ec_curve_label = "P-256";
+};
 
 std::string get_cpu_info() {
     std::ifstream cpuinfo("/proc/cpuinfo");
@@ -83,24 +91,76 @@ void print_system_info() {
     std::cout << std::endl;
 }
 
-void benchmark_rsa_vs_ecdsa() {
-    const int iterations = 100;
+static int curve_from_string(const std::string &name, std::string &label) {
+    std::string n = name;
+    // normalize
+    for (auto &c : n) c = std::toupper(static_cast<unsigned char>(c));
+    if (n == "P256" || n == "P-256" || n == "PRIME256V1" || n == "SECP256R1") {
+        label = "P-256";
+        return NID_X9_62_prime256v1;
+    }
+    if (n == "P384" || n == "P-384" || n == "SECP384R1") {
+        label = "P-384";
+        return NID_secp384r1;
+    }
+    if (n == "P521" || n == "P-521" || n == "SECP521R1") {
+        label = "P-521";
+        return NID_secp521r1;
+    }
+    return 0;
+}
+
+static void print_usage(const char* prog) {
+    std::cout << "Usage: " << prog << " [--iter N] [--rsa BITS] [--curve P256|P384|P521]" << std::endl;
+}
+
+static BenchConfig parse_args(int argc, char** argv) {
+    BenchConfig cfg;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--iter" || arg == "-n") {
+            if (i + 1 < argc) cfg.iterations = std::stoi(argv[++i]);
+        } else if (arg == "--rsa" || arg == "-r") {
+            if (i + 1 < argc) cfg.rsa_bits = std::stoi(argv[++i]);
+        } else if (arg == "--curve" || arg == "-c") {
+            if (i + 1 < argc) {
+                std::string label;
+                int nid = curve_from_string(argv[++i], label);
+                if (nid != 0) {
+                    cfg.ec_curve_nid = nid;
+                    cfg.ec_curve_label = label;
+                } else {
+                    std::cerr << "Unknown curve. Supported: P256, P384, P521" << std::endl;
+                    print_usage(argv[0]);
+                    std::exit(2);
+                }
+            }
+        } else if (arg == "--help" || arg == "-h") {
+            print_usage(argv[0]);
+            std::exit(0);
+        }
+    }
+    return cfg;
+}
+
+void benchmark_rsa_vs_ecdsa(const BenchConfig& cfg) {
+    const int iterations = cfg.iterations;
     unsigned char data[32];
     memset(data, 0xAA, 32); // Simple test data
     
     std::cout << "Cryptographic Operation Performance Comparison" << std::endl;
     std::cout << "=============================================" << std::endl;
     std::cout << "Iterations: " << iterations << std::endl;
-    std::cout << "RSA Algorithm: RSA-PSS with SHA-256 and MGF1-SHA256" << std::endl;
-    std::cout << "ECDSA Algorithm: ECDSA with SHA-256" << std::endl;
+    std::cout << "RSA Algorithm: RSA-PSS(" << cfg.rsa_bits << ") with SHA-256 and MGF1-SHA256" << std::endl;
+    std::cout << "ECDSA Algorithm: ECDSA " << cfg.ec_curve_label << " with SHA-256" << std::endl;
     std::cout << std::endl;
     
-    // RSA 3072 Key Generation and Signing (RSA-PSS)
+    // RSA Key Generation and Signing (RSA-PSS)
     auto start = std::chrono::high_resolution_clock::now();
     
     EVP_PKEY_CTX* rsa_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
     EVP_PKEY_keygen_init(rsa_ctx);
-    EVP_PKEY_CTX_set_rsa_keygen_bits(rsa_ctx, 3072);
+    EVP_PKEY_CTX_set_rsa_keygen_bits(rsa_ctx, cfg.rsa_bits);
     EVP_PKEY* rsa_key = nullptr;
     EVP_PKEY_keygen(rsa_ctx, &rsa_key);
     
@@ -137,12 +197,12 @@ void benchmark_rsa_vs_ecdsa() {
     }
     auto rsa_sign_end = std::chrono::high_resolution_clock::now();
     
-    // EC P-256 Key Generation and Signing
+    // EC Key Generation and Signing
     auto ec_start = std::chrono::high_resolution_clock::now();
     
     EVP_PKEY_CTX* ec_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, nullptr);
     EVP_PKEY_keygen_init(ec_ctx);
-    EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ec_ctx, NID_X9_62_prime256v1);
+    EVP_PKEY_CTX_set_ec_paramgen_curve_nid(ec_ctx, cfg.ec_curve_nid);
     EVP_PKEY* ec_key = nullptr;
     EVP_PKEY_keygen(ec_ctx, &ec_key);
     
@@ -204,32 +264,33 @@ void benchmark_rsa_vs_ecdsa() {
     auto ec_verify_ms = std::chrono::duration_cast<std::chrono::microseconds>(ec_verify_end - ec_verify_start).count();
     
     std::cout << "Key Generation Performance:" << std::endl;
-    std::cout << "  RSA-3072:  " << rsa_keygen_ms << " ms" << std::endl;
-    std::cout << "  EC P-256:  " << ec_keygen_ms / 1000.0 << " ms" << std::endl;
+    std::cout << "  RSA-" << cfg.rsa_bits << ":  " << rsa_keygen_ms << " ms" << std::endl;
+    std::cout << "  EC " << cfg.ec_curve_label << ":  " << ec_keygen_ms / 1000.0 << " ms" << std::endl;
     std::cout << "  Speed Ratio: " << (double)rsa_keygen_ms / (ec_keygen_ms / 1000.0) << "x faster" << std::endl;
     std::cout << std::endl;
     
     std::cout << "Signing Performance (" << iterations << " signatures):" << std::endl;
-    std::cout << "  RSA-PSS-3072: " << rsa_sign_ms << " μs total (" << rsa_sign_ms / iterations << " μs/sig)" << std::endl;
-    std::cout << "  ECDSA-256:    " << ec_sign_ms << " μs total (" << ec_sign_ms / iterations << " μs/sig)" << std::endl;
+    std::cout << "  RSA-PSS-" << cfg.rsa_bits << ": " << rsa_sign_ms << " μs total (" << rsa_sign_ms / iterations << " μs/sig)" << std::endl;
+    std::cout << "  ECDSA-" << cfg.ec_curve_label << ":    " << ec_sign_ms << " μs total (" << ec_sign_ms / iterations << " μs/sig)" << std::endl;
     std::cout << "  Speed Ratio: " << (double)rsa_sign_ms / ec_sign_ms << "x faster" << std::endl;
     std::cout << std::endl;
     
     std::cout << "Verification Performance (" << iterations << " verifications):" << std::endl;
-    std::cout << "  RSA-PSS-3072: " << rsa_verify_ms << " μs total (" << rsa_verify_ms / iterations << " μs/verify)" << std::endl;
-    std::cout << "  ECDSA-256:    " << ec_verify_ms << " μs total (" << ec_verify_ms / iterations << " μs/verify)" << std::endl;
+    std::cout << "  RSA-PSS-" << cfg.rsa_bits << ": " << rsa_verify_ms << " μs total (" << rsa_verify_ms / iterations << " μs/verify)" << std::endl;
+    std::cout << "  ECDSA-" << cfg.ec_curve_label << ":    " << ec_verify_ms << " μs total (" << ec_verify_ms / iterations << " μs/verify)" << std::endl;
     std::cout << "  Speed Ratio: " << (double)rsa_verify_ms / ec_verify_ms << "x faster" << std::endl;
     std::cout << std::endl;
     
     std::cout << "Algorithm Details:" << std::endl;
     std::cout << "  RSA-PSS: PKCS#1 v2.1 with SHA-256, MGF1-SHA256, salt length = digest length" << std::endl;
-    std::cout << "  ECDSA: P-256 curve with SHA-256 hash" << std::endl;
+    std::cout << "  ECDSA: " << cfg.ec_curve_label << " curve with SHA-256 hash" << std::endl;
     std::cout << std::endl;
     
     std::cout << "Mathematical Complexity Analysis:" << std::endl;
-    std::cout << "  RSA-PSS-3072: O(log³ n) with n = 3072 bits" << std::endl;
-    std::cout << "  ECDSA-256: O(log n) with n = 256 bits" << std::endl;
-    std::cout << "  Theoretical ratio: ~" << (int)pow(3072.0/256.0, 2) << "x difference" << std::endl;
+    int ec_bits = (cfg.ec_curve_nid == NID_X9_62_prime256v1) ? 256 : (cfg.ec_curve_nid == NID_secp384r1 ? 384 : 521);
+    std::cout << "  RSA-PSS-" << cfg.rsa_bits << ": O(log³ n) with n = " << cfg.rsa_bits << " bits" << std::endl;
+    std::cout << "  ECDSA-" << ec_bits << ": O(log n) with n = " << ec_bits << " bits" << std::endl;
+    std::cout << "  Theoretical ratio: ~" << (int)pow((double)cfg.rsa_bits/(double)ec_bits, 2) << "x difference" << std::endl;
     std::cout << std::endl;
     
     std::cout << "Signature Verification Complexity:" << std::endl;
@@ -246,8 +307,8 @@ void benchmark_rsa_vs_ecdsa() {
     std::cout << std::endl;
     
     std::cout << "Performance Ratio Analysis:" << std::endl;
-    double rsa_sign_verify_ratio = (double)rsa_sign_ms / rsa_verify_ms;
-    double ec_sign_verify_ratio = (double)ec_sign_ms / ec_verify_ms;
+    double rsa_sign_verify_ratio = (double)rsa_sign_ms / std::max<int64_t>(1, rsa_verify_ms);
+    double ec_sign_verify_ratio = (double)ec_sign_ms / std::max<int64_t>(1, ec_verify_ms);
     std::cout << "  RSA Sign/Verify ratio: " << rsa_sign_verify_ratio << "x (asymmetric)" << std::endl;
     std::cout << "  ECDSA Sign/Verify ratio: " << ec_sign_verify_ratio << "x (symmetric)" << std::endl;
     std::cout << "  Explanation: RSA uses small public exponent (65537) vs large private key" << std::endl;
@@ -264,11 +325,11 @@ void benchmark_rsa_vs_ecdsa() {
     EVP_MD_CTX_free(ec_verify_ctx);
 }
 
-int main() {
+int main(int argc, char** argv) {
     ERR_load_crypto_strings();
-    
+    BenchConfig cfg = parse_args(argc, argv);
     print_system_info();
-    benchmark_rsa_vs_ecdsa();
+    benchmark_rsa_vs_ecdsa(cfg);
     
     ERR_free_strings();
     return 0;

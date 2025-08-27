@@ -5,6 +5,19 @@ CXX = g++
 CXXFLAGS = -std=c++11 -Wall -Wextra -O2 -pthread
 LDFLAGS = -lssl -lcrypto -pthread
 
+# Platform-specific configuration (macOS/Homebrew OpenSSL)
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+# Try to detect Homebrew's OpenSSL@3 prefix; fall back to common locations
+OPENSSL_PREFIX ?= $(shell brew --prefix openssl@3 2>/dev/null)
+ifeq ($(OPENSSL_PREFIX),)
+OPENSSL_PREFIX := /opt/homebrew/opt/openssl@3
+endif
+# Include and lib paths for OpenSSL headers and libraries
+CXXFLAGS += -I$(OPENSSL_PREFIX)/include
+LDFLAGS += -L$(OPENSSL_PREFIX)/lib -Wl,-rpath,$(OPENSSL_PREFIX)/lib
+endif
+
 # Directories
 SRCDIR = src/cpp
 OBJDIR = obj
@@ -63,6 +76,10 @@ install-deps:
 	sudo apt-get update
 	sudo apt-get install -y build-essential libssl-dev
 
+# Install dependencies (macOS/Homebrew)
+install-deps-macos:
+	brew install openssl@3
+
 # Test run with default parameters for all tools
 test: $(RSA_TARGET) $(EC_TARGET) $(ECDSA_TARGET) $(BENCHMARK_TARGET)
 	@echo "Testing RSA generator:"
@@ -109,6 +126,7 @@ help:
 	@echo "  crypto_benchmark - Build only the crypto benchmark"
 	@echo "  clean         - Remove build artifacts"
 	@echo "  install-deps  - Install required dependencies (Ubuntu/Debian)"
+	@echo "  install-deps-macos - Install required dependencies (macOS/Homebrew)"
 	@echo "  test          - Build and run tests for all tools"
 	@echo "  test-ec       - Build and run EC generator tests with different curves"
 	@echo "  test-ecdsa    - Build and run ECDSA signer tests with different curves"
